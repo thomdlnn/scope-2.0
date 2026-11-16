@@ -1,0 +1,43 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: scope
+
+resources:
+  - namespace.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+
+configMapGenerator:
+  - name: scope-nginx
+    files:
+      - default.conf=nginx.conf
+
+# Le Secret « scope-git-credentials » (username + password = token GitHub en
+# lecture sur le dépôt SCOPE) n'est PAS commité : voir README, section Déploiement.
+
+# Paramètres de l'instance : seul endroit à adapter (avec deploy/argocd/application.yaml).
+patches:
+  - target:
+      kind: Deployment
+      name: scope
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/1/env/0
+        value:
+          name: GITSYNC_REPO
+          value: https://github.com/OWNER/REPO.git # à adapter : votre dépôt SCOPE
+  - target:
+      kind: Ingress
+      name: scope
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: scope.local
+      - op: replace
+        path: /spec/ingressClassName
+        value: traefik
+      - op: replace
+        path: /metadata/annotations/kubernetes.io~1ingress.class
+        value: traefik

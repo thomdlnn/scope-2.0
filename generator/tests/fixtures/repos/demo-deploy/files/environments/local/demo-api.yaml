@@ -1,0 +1,3 @@
+image:
+  repository: ghcr.io/acme/demo-api
+  tag: "{{SHA:demo-api:main}}"

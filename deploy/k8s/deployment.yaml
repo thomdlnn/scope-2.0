@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scope
+  labels:
+    app.kubernetes.io/name: scope
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: scope
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: scope
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 65533
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nginx
+          image: nginxinc/nginx-unprivileged:1.28.0-alpine
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: site
+              mountPath: /site
+              readOnly: true
+            - name: nginx-conf
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+              readOnly: true
+          readinessProbe: # prêt dès que git-sync a tiré le site
+            httpGet:
+              path: /index.html
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 5m, memory: 16Mi }
+            limits: { cpu: 100m, memory: 64Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+
+        - name: git-sync
+          image: registry.k8s.io/git-sync/git-sync:v4.5.0
+          env:
+            - name: GITSYNC_REPO
+              value: https://github.com/OWNER/REPO.git # remplacé par kustomization.yaml
+            - name: GITSYNC_REF
+              value: scope-site
+            - name: GITSYNC_PERIOD
+              value: 60s
+            - name: GITSYNC_ROOT
+              value: /site
+            - name: GITSYNC_LINK
+              value: current
+            - name: GITSYNC_DEPTH
+              value: "1"
+            - name: GITSYNC_HTTP_BIND
+              value: ":2020"
+            - name: GITSYNC_USERNAME
+              valueFrom:
+                secretKeyRef: { name: scope-git-credentials, key: username }
+            - name: GITSYNC_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: scope-git-credentials, key: password }
+          ports:
+            - name: git-sync
+              containerPort: 2020
+          volumeMounts:
+            - name: site
+              mountPath: /site
+          livenessProbe: # / répond 200 tant que les synchronisations réussissent
+            httpGet:
+              path: /
+              port: git-sync
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            failureThreshold: 5
+          resources:
+            requests: { cpu: 5m, memory: 32Mi }
+            limits: { cpu: 200m, memory: 128Mi }
+          securityContext:
+            runAsUser: 65533
+            runAsGroup: 65533
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+      volumes:
+        - name: site
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: nginx-conf
+          configMap:
+            name: scope-nginx

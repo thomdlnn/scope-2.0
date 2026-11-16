@@ -1,0 +1,51 @@
+# Tests du générateur, image Docker, manifests et vérification navigateur.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: generator/requirements-dev.txt
+      - run: pip install -r generator/requirements-dev.txt
+      - name: pytest
+        working-directory: generator
+        run: python -m pytest -q
+      - name: kustomize
+        run: kubectl kustomize deploy/k8s > /dev/null
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: docker compose config
+        run: docker compose config --quiet
+      - name: image du générateur
+        run: docker build -t scope-generator:ci .
+
+  navigateur:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install -r generator/requirements.txt
+      - name: vérification dans Chromium headless (ordinateur + mobile, clair + sombre)
+        run: scripts/verifier-site.sh

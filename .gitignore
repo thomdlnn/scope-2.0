@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+site/
+out/
+.DS_Store
+.env
+# Vos projets et vos tokens restent dans VOTRE copie (voir README) :
+# en mode Kubernetes, ./scope.sh init les commite volontairement (git add -f).
+projects/*.yml
