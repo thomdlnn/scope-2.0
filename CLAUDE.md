@@ -3,39 +3,42 @@
 Dépôt du générateur SCOPE (Python 3.12, site statique). Voir README.md et docs/cahier-des-besoins.md.
 
 <!-- scope:start -->
-## SCOPE — rapport obligatoire après chaque action
+## SCOPE — un rapport tenu à jour pour chaque demande
 
-Ce dépôt est suivi par SCOPE (projet `scope`). Après **chaque** action qui modifie le code, tu DOIS :
+Ce dépôt est suivi par SCOPE (projet `scope`). L'humain suit ton travail en direct par ces rapports : ce qui n'y est pas, il ne le voit pas.
 
-1. Créer un fichier `.scope/rapports/AAAA-MM-JJ-HHMMSS-<slug>.md` (date et heure UTC, slug court en kebab-case).
-2. Le commiter **dans le même commit** que le travail (n'y mets pas le hash du commit : SCOPE le retrouve).
-3. Renseigner `commit_message` avec le message de ce commit, et `pr_titre` avec le titre de la PR (ouverte ou à ouvrir).
-4. Ne JAMAIS y écrire de secret, token, mot de passe ou donnée personnelle.
+**Quand.** Dès qu'une demande implique une action (code, commit, push, PR, déploiement, action hors du dépôt) ou une question à l'humain, crée son rapport **avant de commencer**, avec `statut: en-cours`. Une réponse purement informative n'en demande pas.
 
-Format exact (en-tête YAML puis sections) :
+**Un fichier par demande** : `.scope/rapports/AAAA-MM-JJ-HHMMSS-<slug>.md` (heure UTC, slug court en kebab-case). **Mets à jour ce même fichier** à chaque étape : `statut`, `actions`, `maj`, les sections. Quand l'humain te répond, continue dans le même fichier. Nouvelle demande = nouveau fichier.
+
+**Ne commite et ne pousse jamais le rapport** (`.scope/` est exclu de git). N'y écris jamais de secret, token, mot de passe ni donnée personnelle.
+
+**Attente de l'humain.** Si tu poses une question ou attends une décision, un accès, une valeur ou une action manuelle : écris-la en `- Question : …` sous `## Pour vous`, passe `statut: attente`, puis rends la main. `attente` ⇔ au moins une question. Une information utile à l'humain (URL à déclarer, limite, risque) est une `- Remarque : …` et ne met pas en attente.
 
 ```markdown
 ---
-date: 2026-11-16T10:30:00Z
 projet: scope
-repo: nom-du-repo
-agent: claude-code          # claude-code | cursor | copilot | codex | autre
-branche: feat/login
-commit_message: "feat(front): ajout de la page de login"
-pr_titre: "Ajout de la page de login"
-pr_numero: 42               # optionnel, si déjà connu
-statut: termine             # termine | pr-ouverte | bloque | echec
+repo: <nom du dépôt>
+agent: claude-code        # claude-code | cursor | copilot | codex | autre
+branche: feat/login-google
+demande: "Page de login avec authentification Google"
+statut: attente           # en-cours | attente | termine | echec
+actions: [code, commit]   # code | commit | push | pr | deploy | hors-depot
+debut: 2026-11-17T10:30:00Z
+maj: 2026-11-17T10:42:00Z
+pr: 42                    # optionnel
 ---
 
-## Résumé court
-Une ligne : quoi, où, références.
+## Résumé
+Une ligne : où en est la demande.
+
+## Pour vous
+- Question : quel Client ID Google dois-je utiliser ?
+- Remarque : déclarez http://localhost:3000/auth/callback dans la console Google.
 
 ## Détail
-Fichiers modifiés, choix techniques, tests lancés, reste à faire.
-
-## Prochaine étape
-(optionnel) Ce que l'humain doit faire ensuite : PR à relire, choix à faire, prompt suggéré.
+Fichiers modifiés, choix techniques, tests lancés.
 ```
 
-Utilise `bloque` si tu attends une décision humaine, `echec` si le travail n'a pas abouti. Un rapport par action, jamais de modification d'un rapport existant.
+Avant de rendre la main, vérifie que le rapport correspond à ce que tu as fait : `statut` et `actions` (seulement ce qui a vraiment été fait), `maj`, et que chaque question ouverte y figure.
 <!-- scope:end -->

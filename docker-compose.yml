@@ -1,15 +1,22 @@
-# SCOPE en local : le générateur lit vos dépôts via l'API GitHub (token dans .env)
-# toutes les 15 min, nginx sert la page sur http://localhost:8080.
-#   cp .env.example .env   # puis renseignez SCOPE_GH_TOKEN
-#   ./scope.sh up          # ou : docker compose up -d --build
+# SCOPE en local : le générateur relit les rapports .scope/rapports/ des dépôts
+# de SCOPE_ROOT (par défaut ~/Git, monté en lecture seule) toutes les 3 s, et
+# nginx sert la page sur http://localhost:8080. Avec SCOPE_GH_TOKEN dans .env
+# (optionnel, lecture seule), SCOPE ajoute l'état des dépôts GitHub.
+#   ./scope.sh up        (ou : docker compose up -d --build)
 services:
   generator:
     build: .
     image: scope-generator:local
+    # Votre identifiant (exporté par scope.sh) : lecture des dépôts sous Linux.
+    user: "${SCOPE_UID:-10001}:${SCOPE_GID:-10001}"
     env_file:
       - path: .env
         required: false
+    environment:
+      SCOPE_ROOT: /repos
+      SCOPE_PROJECTS: /projects
     volumes:
+      - ${SCOPE_ROOT:-${HOME}/Git}:/repos:ro
       - ./projects:/projects:ro
       - site:/site
     restart: unless-stopped
@@ -20,7 +27,7 @@ services:
       - "127.0.0.1:${SCOPE_PORT:-8080}:8080"
     volumes:
       - site:/site:ro
-      - ./deploy/k8s/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - generator
     healthcheck:

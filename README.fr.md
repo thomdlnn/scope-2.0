@@ -1,257 +1,183 @@
 # SCOPE
 
-[English](README.md) · **Français**
+**Supervision, Coordination & Observation Platform Engine** · [English](README.md)
 
-**Supervision, Coordination & Observation Platform Engine**
+SCOPE vous guide **pendant que vous travaillez** entre toutes les demandes faites à vos agents IA de code (Claude Code, Cursor, Copilot, Codex…). Pour chaque demande, une page montre :
 
-SCOPE affiche, projet par projet, ce que les assistants de code IA (Claude Code, Cursor, GitHub Copilot, Codex…) ont fait sur vos dépôts GitHub.
+- **ce que vous avez demandé** ;
+- **ce que l'agent a fait** : code, commit, push, PR, déploiement, selon ce que vous lui avez autorisé ;
+- surtout, **ce que l'agent attend de vous** : une question, une décision, ou une remarque à connaître.
 
-À la fin de chaque prompt, l'assistant dépose un court rapport Markdown dans `.scope/rapports/` du dépôt. SCOPE lit ces rapports avec **un token en lecture seule** et publie une page par projet :
-- **en tête de page**, un bandeau : pull requests ouvertes, commits à déployer, statut du dernier prompt et santé de l'application ;
-- **le fil des rapports** : ce qui a été fait, avec quel commit et quelle pull request, et ce qu'il reste à faire ;
-- **pour chaque dépôt** : pull requests ouvertes, dernier commit, version déployée et version réellement en production.
+> *« Crée une page de login avec Google. »* SCOPE montre que l'agent attend une réponse (*« Quel Client ID ? »*) et fait une remarque (*« Google exige l'URL de retour http://localhost:3000/auth/callback »*).
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/scope-dark.png">
-  <img alt="Page d'un projet dans SCOPE : bandeau (PR ouvertes, commits à déployer, dernier prompt, santé), panneau des dépôts et fil des rapports" src="docs/images/scope-light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/accueil-sombre.png">
+  <img alt="Accueil de SCOPE : actions en attente, puis un bloc par projet" src="docs/img/accueil.png">
 </picture>
 
-## Principes
+## Démarrage
 
-- **Simple.** Un nom de projet et un token suffisent pour ajouter un projet.
-- **Lecture seule.** Le token de SCOPE ne fait que lire les dépôts du projet.
-- **Léger.** Pas de base de données, pas de serveur applicatif, pas d'IA dans SCOPE : un générateur produit un site statique, servi par nginx.
-- **Universel.** Fonctionne avec tout assistant capable de suivre une consigne écrite : le contrat est un fichier Markdown.
-- **Vérifiable.** SCOPE ne se fie pas aux références écrites par l'IA : il retrouve lui-même le commit et la pull request via l'API GitHub.
-
-## Votre copie, vos données
-
-**Ce dépôt ne contient que le code.** SCOPE n'envoie et ne stocke rien ici : vos projets (`projects/*.yml`), vos tokens et la page générée restent dans **votre** copie.
-
-| Mode | Copie à utiliser | Où vivent vos données |
-| --- | --- | --- |
-| **Local** (Docker Compose) | un simple `git clone` de ce dépôt | sur votre machine : `projects/*.yml` et `.env` sont ignorés par git, rien n'est poussé |
-| **Kubernetes** (GitHub Actions) | **votre propre dépôt privé** : bouton **Use this template**, puis *Private* | dans votre dépôt privé : fichiers projet, secrets Actions, branche `scope-site` |
-
-> **Ne forkez pas ce dépôt pour le mode Kubernetes.** Le fork d'un dépôt public est public : la branche `scope-site` publierait vos rapports, les titres de vos PR et les noms de vos dépôts. Utilisez **Use this template** (ou un clone poussé vers un nouveau dépôt privé).
-
-Pour récupérer les nouvelles versions : `git pull` en mode local. Pour une copie créée depuis le template, ajoutez ce dépôt comme remote `upstream` et fusionnez `upstream/main`.
-
-## Démarrage rapide (Docker Compose)
-
-Prérequis : Docker avec Compose, `python3` (≥ 3.12) et [`gh`](https://cli.github.com/) connecté (`gh auth login`).
+Prérequis : `git`, et Docker avec Compose, ou Python ≥ 3.12 sans Docker.
 
 ```bash
 git clone https://github.com/thomdlnn/scope-2.0.git scope && cd scope
-./scope.sh init boutique --env     # 1 token en lecture, choix des dépôts, consigne IA déposée
-./scope.sh up                      # http://localhost:8080
+./scope.sh init mon-projet ~/Git/mon-app ~/Git/mon-api --lang fr   # une fois par dépôt
+./scope.sh up                                                    # http://localhost:8080
 ```
 
-`init` :
-1. **demande un token** GitHub en lecture, sans l'afficher ([voir ci-dessous](#le-token)) ;
-2. **liste les dépôts** que ce token peut lire, puis vous choisissez ceux du projet ;
-3. **écrit le token** dans `.env` (jamais commité) et le projet dans `projects/boutique.yml` ;
-4. **dépose la consigne SCOPE** dans `CLAUDE.md` et `AGENTS.md` de chaque dépôt, par une pull request ouverte avec *vos* droits `gh`, jamais avec le token.
+Demandez ensuite quelque chose à votre agent dans `mon-app`. La demande apparaît en moins de 3 secondes, sans recharger la page.
 
-Mergez ces pull requests. Les rapports apparaissent ensuite au fil des prompts.
+`init` n'écrit rien sur GitHub et ne commite rien. Dans chaque clone, il :
+1. ajoute la consigne SCOPE dans `CLAUDE.md` et `AGENTS.md`, entre `<!-- scope:start -->` et `<!-- scope:end -->` (relancez-le pour la mettre à jour). Vous décidez de commiter ces fichiers ou non ;
+2. ajoute `.scope/` à `.git/info/exclude` : les rapports ne sont jamais commités ;
+3. écrit le nom du projet dans `.scope/projet` ;
+4. installe un hook Claude Code dans `.claude/settings.local.json` (voir [le hook](#le-hook-claude-code)).
 
-Le générateur tourne dans un conteneur et régénère la page toutes les 15 minutes. nginx la sert sur `127.0.0.1:8080`.
+`--lang fr` donne une consigne en français (par défaut : `en`).
 
 | Commande | Rôle |
 | --- | --- |
-| `./scope.sh init <projet>` | Ajoute ou met à jour un projet (`--env` : mode Docker Compose) |
-| `./scope.sh consigne <projet>` | Redépose ou met à jour la consigne IA dans les dépôts d'un projet |
-| `./scope.sh up` / `down` / `logs` | Démarre, arrête ou suit SCOPE en local |
-| `./scope.sh refresh` | Régénère la page tout de suite |
-| `./scope.sh apercu` | Génère la page une fois, sans Docker, et la sert sur http://localhost:8000 |
-| `./scope.sh cluster` | Installe SCOPE sur un cluster Kubernetes avec ArgoCD |
+| `./scope.sh init <projet> <clone>... [--lang en\|fr]` | Installe ou met à jour SCOPE dans des clones locaux |
+| `./scope.sh up` / `down` / `logs` | Lance, arrête, suit SCOPE (Docker Compose) |
+| `./scope.sh apercu` | Même page sans Docker (Python seul), sur http://localhost:8000 |
 
-Options utiles de `init` :
+| Réglage (environnement ou `.env`) | Défaut | Rôle |
+| --- | --- | --- |
+| `SCOPE_ROOT` | `~/Git` | Dossier où chercher les dépôts, monté **en lecture seule** |
+| `SCOPE_DEPTH` | `4` | Nombre de niveaux de dossiers parcourus sous `SCOPE_ROOT` |
+| `SCOPE_INTERVAL` | `3` | Secondes entre deux lectures des rapports |
+| `SCOPE_PORT` | `8080` | Port local de la page (sur 127.0.0.1) |
+| `SCOPE_GH_TOKEN` | — | Token GitHub optionnel, en lecture seule ([voir plus bas](#optionnel--un-token-github)) |
+| `SCOPE_GH_INTERVAL` | `60` | Secondes entre deux lectures de l'API GitHub |
 
-| Option | Effet |
-| --- | --- |
-| `--env [FICHIER]` | Mode Docker Compose : token écrit dans `.env` (par défaut) au lieu d'un secret GitHub |
-| `--titre "Boutique"` | Titre affiché du projet |
-| `--repos o/a,o/b` | Dépôts imposés, sans liste à choisir |
-| `--token-dedie` | Token propre à ce projet (voir ci-dessous) |
-| `--clones ~/src` | Écrit la consigne directement dans vos clones locaux (`~/src/<dépôt>`), sans ouvrir de PR |
-| `--dry-run` | N'envoie rien : ni secret, ni push, ni PR |
+## Fonctionnement
 
-### Le token
+```
+vos clones (SCOPE_ROOT, lecture seule)     générateur (toutes les 3 s)            nginx
+~/Git/.../mon-app/.scope/rapports/*.md ──▶ lit les rapports, groupe par projet ──▶ http://localhost:8080
+         ▲                                 écrit un site statique, bascule         │
+         └── écrits par vos agents         d'un coup seulement s'il a changé       ▼
+                                                                   la page relit etat.json
+                                                                   et se met à jour seule
+```
 
-Créez un [token *fine-grained*](https://github.com/settings/personal-access-tokens/new) :
-- **Repository access :** *Only select repositories*, en choisissant les dépôts du projet. Ajoutez le dépôt GitOps si vous affichez la version déployée ;
-- **Permissions :** **Contents : Read-only** et **Pull requests : Read-only** (Metadata : Read-only est ajoutée d'office) ;
-- **Expiration :** une date d'expiration.
+- **Les rapports ne sont pas commités.** Ils servent au suivi en direct ; les commits font déjà l'historique. Ils vivent dans `.scope/rapports/` de votre clone local, exclus de git.
+- **SCOPE lit les rapports sur votre disque, pas sur GitHub.** Il ne voit donc que les agents qui tournent sur votre machine. C'est voulu : les rapports ne demandent ni token ni réseau.
+- **Ni IA, ni base de données, ni serveur applicatif.** Un script Python écrit un site statique, nginx le sert.
+- **Universel.** Tout agent capable de suivre une consigne écrite convient : le contrat est un fichier Markdown.
+- **En direct.** La page relit `etat.json` toutes les quelques secondes et remplace son contenu quand quelque chose change, en gardant vos filtres et les sections dépliées. L'en-tête indique la dernière lecture des rapports et passe en orange si la génération semble arrêtée.
 
-**Un token pour tout, ou un token par projet.** Le premier token devient le token global, `SCOPE_GH_TOKEN`, qui doit alors lire les dépôts de tous les projets. Pour cloisonner, `--token-dedie` enregistre un token propre au projet, `SCOPE_TOKEN_<PROJET>`. Si un token global existe déjà, `init` vous propose ce choix.
-
-### Rafraîchissement
-
-La page est régénérée **toutes les 15 minutes** (`SCOPE_INTERVAL` dans `.env`). Pour aller plus vite :
-- le bouton **Actualiser**, en haut de chaque page, recharge la page courante avec les dernières données générées, en conservant vos filtres ;
-- `./scope.sh refresh` force une nouvelle génération sans attendre.
-
-L'en-tête indique depuis combien de temps la page a été mise à jour. Au-delà de 30 minutes, l'indication passe en orange : la génération est probablement en échec, par exemple à cause d'un token expiré.
+L'**accueil** annonce d'abord le nombre d'**actions en attente** (« Aucune action en attente », sinon « 2 actions en attente : mon-projet (1), … »), puis montre **un bloc par projet**, ceux qui attendent quelque chose en premier : les questions en attente (avec le dépôt et la demande), les demandes **en cours** (signalées quand l'agent n'a rien mis à jour depuis une heure) et, repliées, celles des **7 derniers jours**. La **page d'un projet** reprend ces blocs, avec des filtres par dépôt et par statut, le détail dépliable et les actions en badges.
 
 ## Le rapport
 
-À la fin de chaque prompt qui modifie le code, l'assistant crée `.scope/rapports/AAAA-MM-JJ-HHMMSS-<slug>.md` et le commite avec son travail. La consigne complète est dans [templates/instructions-ia.md](templates/instructions-ia.md).
+Un fichier **par demande**, créé au début du travail et **mis à jour** jusqu'à la fin : `.scope/rapports/AAAA-MM-JJ-HHMMSS-<slug>.md`. La consigne complète donnée aux agents est dans [templates/instructions-ia.fr.md](templates/instructions-ia.fr.md).
 
 ```markdown
 ---
-date: 2026-11-16T10:30:00Z
-projet: boutique
-repo: boutique-front
+projet: mon-projet
+repo: mon-app
 agent: claude-code
-branche: feat/login
-commit_message: "feat(front): ajout de la page de login"
-pr_titre: "Ajout de la page de login"
-statut: pr-ouverte     # termine | pr-ouverte | bloque | echec
+branche: feat/login-google
+demande: "Page de login avec authentification Google"
+statut: attente            # en-cours | attente | termine | echec
+actions: [code, commit]    # code | commit | push | pr | deploy | hors-depot
+debut: 2026-11-17T10:30:00Z
+maj: 2026-11-17T10:42:00Z
+pr: 42                     # optionnel
 ---
 
-## Résumé court
-Page de login ajoutée au frontend, PR ouverte.
+## Résumé
+Une ligne : où en est la demande.
+
+## Pour vous
+- Question : quel Client ID Google dois-je utiliser ?
+- Remarque : déclarez http://localhost:3000/auth/callback dans la console Google.
 
 ## Détail
-Fichiers modifiés, choix techniques, tests lancés, reste à faire.
-
-## Prochaine étape
-(optionnel) Ce que vous devez faire ensuite : PR à relire, choix à faire, prompt suggéré.
+Fichiers modifiés, choix techniques, tests lancés.
 ```
 
-| Champ | Obligatoire | Description |
-| --- | --- | --- |
-| `date`, `projet`, `repo`, `agent`, `statut` | oui | Date ISO 8601, projet SCOPE, dépôt, assistant, état du travail |
-| `branche`, `commit_message`, `pr_titre`, `pr_numero` | non | Affichage et valeurs de secours |
-| `## Résumé court` | oui | Ligne affichée dans le fil |
-| `## Détail`, `## Prochaine étape` | non | Détail dépliable et encadré mis en évidence |
+- `attente` ⇔ au moins une `Question :` dans *Pour vous*. Une remarque seule ne met pas en attente. SCOPE affiche un avertissement si les deux ne concordent pas.
+- Quand vous répondez, l'agent continue dans **le même fichier**. Nouvelle demande = nouveau fichier.
+- Clés et titres acceptés **en français et en anglais** : `projet`/`project`, `statut`/`status`, `demande`/`request`, `branche`/`branch`, `debut`/`started`, `maj`/`updated` ; `Résumé`/`Summary`, `Pour vous`/`For you`, `Détail`/`Details` ; `en-cours`/`in-progress`, `attente`/`waiting`, `termine`/`done`, `echec`/`failed`.
+- **Projet :** le champ `projet`, sinon `.scope/projet`, sinon le nom du dossier du dépôt.
+- **L'ancien format** (un rapport par réponse) reste lu : `bloque` = `attente`, `pr-ouverte` = `termine` avec une PR, « Résumé court » = résumé, « Prochaine étape » = *Pour vous*. Un ancien rapport `bloque` ne compte comme attente que tant qu'il est le rapport le plus récent de son dépôt.
+- **Un rapport mal formé** s'affiche « illisible », avec la raison, et ne casse jamais la page.
+- **Jamais** de secret, token, mot de passe ni donnée personnelle dans un rapport.
 
-- **Commit et PR :** SCOPE retrouve le commit qui a ajouté le rapport, puis la pull request qui le contient.
-- **Branches lues :** la branche par défaut et celles des pull requests ouvertes, sans doublon.
-- **Rapport mal formé :** il est signalé comme « illisible » et n'interrompt jamais la génération.
+### Le hook Claude Code
 
-## Options d'un projet
+Il arrive qu'un agent oublie son rapport. Pour Claude Code, `init` installe deux hooks dans `.claude/settings.local.json` (non commité), appuyés sur `.scope/hooks/scope_hook.py` :
+- quand vous envoyez un prompt (`UserPromptSubmit`), il note l'état du dépôt ;
+- quand l'agent termine son tour (`Stop`), si des fichiers du dépôt ont changé (ou si un commit a été fait) et qu'aucun rapport n'a été créé ou mis à jour pendant le tour, il bloque **une fois** avec un rappel. Il s'appuie sur `stop_hook_active` pour ne jamais bloquer deux fois de suite.
 
-`projects/<projet>.yml` est écrit par `./scope.sh init`, qui conserve les options ajoutées à la main :
+Les autres agents s'appuient sur la consigne d'`AGENTS.md`.
+
+## Optionnel : un token GitHub
+
+Sans token, SCOPE ne fait aucun appel réseau. Avec un token GitHub **en lecture seule**, chaque page projet gagne un panneau **Dépôts** :
+
+- les dépôts sont **déduits des clones** (`git remote get-url origin`), sans liste à écrire. D'éventuels identifiants dans l'URL du remote ne sont jamais affichés ;
+- pour chaque dépôt : **toutes les pull requests ouvertes** (par n'importe qui, brouillons signalés) et le dernier commit de la branche par défaut ;
+- l'accueil indique le nombre de PR ouvertes par projet.
+
+```bash
+cp .env.example .env    # puis renseignez SCOPE_GH_TOKEN=…
+./scope.sh up
+```
+
+Créez un [token *fine-grained*](https://github.com/settings/personal-access-tokens/new) avec accès aux dépôts de vos projets, **Contents : Read-only** et **Pull requests : Read-only**, et une date d'expiration. C'est le seul token de SCOPE. GitHub est lu en tâche de fond toutes les `SCOPE_GH_INTERVAL` secondes (défaut 60) : les rapports locaux continuent d'apparaître toutes les 3 secondes, même si GitHub est lent. Les erreurs de token s'affichent sur la page : *dépôt introuvable avec ce token* (ajoutez le dépôt au token), *PR non lues* (ajoutez la permission Pull requests), *token refusé* (invalide ou expiré).
+
+### Version déployée et santé de l'application (optionnel)
+
+`projects/<projet>.yml` (le nom du fichier est le nom du projet) ajoute ce qui ne peut pas être déduit :
 
 ```yaml
-name: boutique
-title: Boutique
-token: SCOPE_TOKEN_BOUTIQUE            # optionnel : token dédié (sinon SCOPE_GH_TOKEN)
-repos:
-  - <owner>/boutique-front
-  - <owner>/boutique-deploy
-sante: http://boutique.local/health    # optionnel : santé de l'application
-deploiements:                          # optionnel : version déployée (GitOps)
-  <owner>/boutique-front:
-    depot: <owner>/boutique-deploy     # dépôt GitOps suivi par ArgoCD (le token doit le lire)
-    fichier: environments/prod/boutique-front.yaml
-    cle: image.tag                     # défaut : image.tag (SHA du commit construit)
-    environnement: prod                # défaut : local
+deploiements:                                  # demande le token
+  <owner>/mon-app:                             # dépôt applicatif
+    depot: <owner>/mon-app-deploy              # dépôt GitOps (suivi par ArgoCD par exemple)
+    fichier: environments/local/mon-app.yaml
+    cle: image.tag                             # défaut : image.tag (SHA du commit construit)
+    environnement: local                       # défaut : local
+sante: http://mon-app.local/health             # appelée par le navigateur, sans token
 ```
 
-**Version déployée.** SCOPE lit la version *déclarée* dans le dépôt GitOps et compte les commits de la branche par défaut qui ne sont pas encore déployés. Il n'interroge pas le cluster.
+- **`deploiements`** : SCOPE lit la version déclarée dans le dépôt GitOps et compte les commits de la branche par défaut pas encore déployés.
+- **`sante`** : le navigateur appelle cette URL toutes les 60 secondes et comprend `{"status": "ok", "services": {…}, "versions": {"mon-app": "<sha>"}}`. L'application doit autoriser CORS (`Access-Control-Allow-Origin`), sinon l'état s'affiche « injoignable ».
 
-**Santé.** Le navigateur appelle l'URL de `sante` toutes les 60 secondes. Il comprend une réponse JSON de la forme suivante :
-- `status` : `ok`, `degraded`… ;
-- `services` (optionnel) : état de chaque composant, affiché en info-bulle ;
-- `versions` (optionnel) : version réellement en production par dépôt, affichée dans le panneau des dépôts.
-
-```json
-{"status": "ok", "services": {"boutique-api": "ok"}, "versions": {"boutique-front": "5c60f6c…"}}
-```
-
-L'application doit autoriser la lecture depuis la page SCOPE (en-tête `Access-Control-Allow-Origin`). Sans ça, l'état s'affiche « injoignable ».
-
-## Déploiement sur Kubernetes (GitHub Actions + ArgoCD)
-
-Dans ce mode, une GitHub Action génère la page et la publie sur la branche `scope-site` du dépôt SCOPE. Un pod nginx, avec un sidecar git-sync, la sert depuis votre cluster.
-
-```
-Dépôts du projet                    Dépôt SCOPE (GitHub Actions)               Cluster Kubernetes
-.scope/rapports/*.md  ──lecture──▶  build-site (15 min · refresh · push)       pod scope
-PR, commits, GitOps     (token)       python -m scope_gen                        git-sync ◀── scope-site (60 s)
-                                             │                                     nginx ──▶ Ingress ──▶ navigateur
-                                             ▼
-                                    branche scope-site (HTML + data.json)
-```
-
-1. **Créez votre dépôt privé** depuis ce dépôt : **Use this template**, puis *Private* (voir [Votre copie, vos données](#votre-copie-vos-données)). La suite se passe dans ce dépôt privé.
-2. **Adaptez les paramètres de votre instance :**
-   - l'URL de votre dépôt privé (`OWNER/REPO`), le nom d'hôte et l'ingress class, dans le bloc `patches` de [deploy/k8s/kustomization.yaml](deploy/k8s/kustomization.yaml) ;
-   - l'URL du dépôt et la branche, dans [deploy/argocd/application.yaml](deploy/argocd/application.yaml) ;
-   - la branche par défaut (`main`), dans [.github/workflows/build-site.yml](.github/workflows/build-site.yml).
-3. **Activez le workflow `build-site`** avec la variable de dépôt `SCOPE_MODE=actions` : `gh variable set SCOPE_MODE --body actions`.
-4. **Ajoutez vos projets** sans `--env` : `./scope.sh init boutique`. Le token est enregistré en secret GitHub du dépôt, et `projects/boutique.yml` est proposé par pull request.
-5. **Installez la page sur le cluster :**
-   ```bash
-   ./scope.sh cluster
-   echo "127.0.0.1 scope.local" | sudo tee -a /etc/hosts    # si le nom n'est pas résolu
-   ```
-   Cette commande :
-   - demande un token en lecture seule sur le dépôt SCOPE ;
-   - crée les Secrets de git-sync (`scope/scope-git-credentials`) et d'ArgoCD (`argocd/repo-scope`) ;
-   - applique l'Application ArgoCD, puis attend que le pod soit prêt.
-
-| Secret | Emplacement | Usage |
-| --- | --- | --- |
-| `SCOPE_GH_TOKEN`, `SCOPE_TOKEN_<PROJET>` | Secrets Actions du dépôt SCOPE | Lecture des dépôts suivis |
-| `scope-git-credentials` | Secret Kubernetes, namespace `scope` | git-sync lit la branche `scope-site` |
-| `repo-scope` | Secret Kubernetes, namespace `argocd` | ArgoCD lit `deploy/k8s` |
-
-Remarques :
-- Le dépôt SCOPE lui-même peut être suivi sans token, avec `token: GITHUB_TOKEN` dans son fichier projet : c'est le token intégré de l'Action.
-- Votre ingress controller doit surveiller le namespace `scope`. Par exemple, Traefik avec `providers.kubernetesIngress.namespaces` doit inclure `scope`.
-- L'Action transmet les secrets du dépôt au générateur (`SCOPE_SECRETS`), pour lui permettre de lire les tokens dédiés. N'y stockez donc que des tokens SCOPE.
-
-Pour le diagnostic : `kubectl -n scope get pods`, puis `kubectl -n scope logs deploy/scope -c git-sync`.
+Un fichier invalide est signalé sur l'accueil et ignoré ; le reste de la page fonctionne.
 
 ## Développement
 
 ```bash
 python3 -m venv generator/.venv && generator/.venv/bin/pip install -r generator/requirements-dev.txt
 (cd generator && .venv/bin/python -m pytest -q)        # tests
-scripts/verifier-site.sh                              # navigateur headless (Docker), captures dans out/captures/
-kubectl kustomize deploy/k8s                          # manifests
-
-# Page générée depuis des clones locaux, sans token (DOSSIER/<dépôt>)
-PYTHONPATH=generator generator/.venv/bin/python -m scope_gen --local ~/src --out site
+scripts/verifier-site.sh                              # Chromium headless (Docker), captures dans out/captures/
+PYTHONPATH=generator generator/.venv/bin/python -m scope_gen --racine ~/Git --out site   # génération ponctuelle
 ```
 
 ```
-scope.sh                  point d'entrée (init, consigne, up, refresh, apercu, cluster)
-docker-compose.yml        mode local : générateur + nginx
-Dockerfile, docker/       image du générateur (boucle de régénération)
-projects/                 un fichier par projet suivi
-templates/                consigne IA
+scope.sh                    point d'entrée (init, up, down, logs, apercu)
+docker-compose.yml          générateur + nginx ; Dockerfile, docker/nginx.conf
+templates/                  consigne des agents (en, fr) et hook Claude Code
 generator/scope_gen/
-  admin.py                ./scope.sh init | consigne | refresh
-  parser.py               rapport → données (ne lève jamais d'exception)
-  backends/               accès aux dépôts : API GitHub, clones locaux
-  sources/                données collectées : rapports, état des dépôts
+  demandes.py               rapport → demande (parser bilingue, ne lève jamais d'exception)
+  locale.py                 trouve les dépôts sur le disque, regroupe par projet
   render.py, templates/, static/   HTML, CSS et JavaScript écrits à la main
-.github/workflows/        ci (tests, image, navigateur), build-site (mode Kubernetes)
-deploy/                   kustomize (nginx + git-sync) et Application ArgoCD
-scripts/                  installer-cluster.sh, verifier-site.sh
-docs/                     cahier des besoins
+  cli.py                    génération ponctuelle, boucle avec bascule atomique, serveur d'aperçu
+  admin.py                  ./scope.sh init
+  sources/depots.py, backends/   état des dépôts via l'API GitHub (token optionnel)
+  config.py                 réglages optionnels projects/*.yml
 ```
 
-**Ajouter une source de données :** créez une classe `Source` dans `generator/scope_gen/sources/` (avec `name` et `collect(project, backend)`). Ajoutez-la à `SOURCES`, puis affichez son résultat dans `render.py`. Il est exporté dans `data.json` sous la clé `name`.
+## Hors périmètre
 
-## Feuille de route
-
-- Vue « action requise » tous projets confondus.
-- Signalement des commits sans rapport, et hook pour assistants qui impose le rapport.
-- Statut des pull requests : CI, revue, conflits.
-- Plusieurs environnements par dépôt.
-- Consommation de tokens, roadmap par projet, notifications.
-
-Le détail est dans le [cahier des besoins](docs/cahier-des-besoins.md).
+Roadmap, consommation de tokens, notifications, Kubernetes, GitHub Actions.
 
 ## Contribuer
 
-Les issues et les pull requests sont bienvenues. Toute modification de `main` passe par une pull request, et la CI (tests, image Docker, vérification navigateur) doit passer.
+Les issues et les pull requests sont bienvenues. Toute modification de `main` passe par une pull request, et la CI (tests, vérification navigateur, shellcheck, image Docker) doit passer.
 
 ## Licence
 

@@ -8,11 +8,17 @@ from urllib.parse import quote
 
 import requests
 
-from ..models import CommitInfo, PullRequestInfo, RawReport, commit_title
-from .base import REPORTS_DIR, Backend, BackendError
+from ..models import CommitInfo, PullRequestInfo, commit_title
+from .base import Backend, BackendError
 
 log = logging.getLogger(__name__)
 API = "https://api.github.com"
+REPO_DENIED = (
+    "dépôt introuvable avec ce token (HTTP 404) : ajoutez ce dépôt au token "
+    "(Repository access), ou vérifiez l'URL du remote origin du clone"
+)
+PULLS_DENIED = "PR non lues : ajoutez la permission « Pull requests : Read-only » au token"
+TOKEN_REFUSED = "token refusé (HTTP 401) : SCOPE_GH_TOKEN est invalide ou expiré"
 
 
 class GitHubBackend(Backend):
@@ -29,6 +35,7 @@ class GitHubBackend(Backend):
         if token:
             self.s.headers["Authorization"] = f"Bearer {token}"
         self._cache: dict[str, object] = {}
+        self.warnings: dict[str, str] = {}  # dépôt → permission manquante (non bloquante)
 
     # --- HTTP -------------------------------------------------------------
     def _get(self, path: str, params: dict | None = None, raw: bool = False, allow_404: bool = False):
@@ -40,6 +47,8 @@ class GitHubBackend(Backend):
             raise BackendError(f"GET {url} : {exc}") from None
         if r.status_code == 404 and allow_404:
             return None
+        if r.status_code == 401:
+            raise BackendError(TOKEN_REFUSED)
         if r.status_code >= 400:
             msg = r.text[:200].replace("\n", " ")
             raise BackendError(f"GET {url} → HTTP {r.status_code} : {msg}")
@@ -53,15 +62,46 @@ class GitHubBackend(Backend):
         return self._cache[key]
 
     # --- Backend ------------------------------------------------------------
-    def _open_pulls(self, repo: str) -> list[dict]:
-        return self._json(f"/repos/{repo}/pulls", {"state": "open", "per_page": 100}) or []
+    def _open_pulls(self, repo: str) -> list[dict] | None:
+        """PR ouvertes ; None si le token n'a pas la permission « Pull requests »
+        (le reste de l'état du dépôt reste lu)."""
+        try:
+            return self._json(f"/repos/{repo}/pulls", {"state": "open", "per_page": 100}) or []
+        except BackendError as exc:
+            if "HTTP 403" not in str(exc):
+                raise
+            if repo not in self.warnings:
+                log.info("%s : PR illisibles : %s", repo, exc)
+                self.warnings[repo] = PULLS_DENIED
+            return None
 
     def default_branch(self, repo: str) -> str | None:
-        return self._json(f"/repos/{repo}")["default_branch"]
+        data = self._json(f"/repos/{repo}", allow_404=True)
+        if data is None:
+            raise BackendError(REPO_DENIED)
+        return data["default_branch"]
 
-    def open_pulls_count(self, repo: str) -> tuple[int, bool]:
+    def open_pulls(self, repo: str) -> tuple[list[PullRequestInfo], bool] | None:
         pulls = self._open_pulls(repo)
-        return len(pulls), len(pulls) >= 100
+        if pulls is None:
+            return None
+        out = []
+        for p in pulls:
+            maj = p.get("updated_at")
+            out.append(
+                PullRequestInfo(
+                    number=p.get("number"),
+                    title=p.get("title"),
+                    url=p.get("html_url"),
+                    auteur=(p.get("user") or {}).get("login"),
+                    brouillon=bool(p.get("draft")),
+                    maj=datetime.fromisoformat(maj.replace("Z", "+00:00")) if maj else None,
+                )
+            )
+        return out, len(pulls) >= 100
+
+    def warning(self, repo: str) -> str | None:
+        return self.warnings.get(repo)
 
     def head_commit(self, repo: str, ref: str) -> CommitInfo | None:
         c = self._json(f"/repos/{repo}/commits/{quote(ref, safe='')}", allow_404=True)
@@ -83,69 +123,3 @@ class GitHubBackend(Backend):
     def commits_between(self, repo: str, base: str, head: str) -> int | None:
         c = self._json(f"/repos/{repo}/compare/{quote(base, safe='')}...{quote(head, safe='')}", allow_404=True)
         return None if not c else c.get("ahead_by")
-
-    def _refs_to_scan(self, repo: str) -> list[tuple[str, str]]:
-        """[(repo_qui_porte_le_fichier, ref)], branche par défaut d'abord."""
-        refs = [(repo, self.default_branch(repo))]
-        pulls = self._open_pulls(repo)
-        for pr in pulls:
-            head = pr.get("head") or {}
-            head_repo = (head.get("repo") or {}).get("full_name")
-            if head_repo and head.get("ref"):
-                refs.append((head_repo, head["ref"]))
-        return refs
-
-    def list_reports(self, repo: str) -> list[RawReport]:
-        out: list[RawReport] = []
-        seen: set[str] = set()
-        for src_repo, ref in self._refs_to_scan(repo):
-            listing = self._json(
-                f"/repos/{src_repo}/contents/{REPORTS_DIR}", {"ref": ref}, allow_404=True
-            )
-            if not isinstance(listing, list):
-                continue
-            for item in listing:
-                name = item.get("name", "")
-                if item.get("type") != "file" or not name.endswith(".md") or name in seen:
-                    continue
-                seen.add(name)  # dédoublonnage dès la lecture : évite des appels inutiles
-                r = self._get(
-                    f"/repos/{src_repo}/contents/{quote(item['path'])}", {"ref": ref}, raw=True
-                )
-                out.append(RawReport(repo=repo, path=item["path"], ref=ref, content=r.text))
-        return out
-
-    def commit_adding(self, repo: str, path: str, ref: str) -> CommitInfo | None:
-        params = {"path": path, "sha": ref, "per_page": 100}
-        r = self._get(f"/repos/{repo}/commits", params, allow_404=True)
-        if r is None:
-            return None
-        commits = r.json()
-        # Le commit d'ajout est le plus ancien : dernière page, dernier élément.
-        last = r.links.get("last", {}).get("url")
-        if last:
-            commits = self._get(last).json()
-        if not commits:
-            return None
-        c = commits[-1]
-        message = commit_title((c.get("commit") or {}).get("message"))
-        return CommitInfo(sha=c["sha"], message=message, url=c.get("html_url"))
-
-    def pulls_for_commit(self, repo: str, sha: str) -> list[PullRequestInfo]:
-        pulls = self._json(f"/repos/{repo}/commits/{sha}/pulls", allow_404=True) or []
-        out = []
-        for p in pulls:
-            state = "merged" if p.get("merged_at") else p.get("state")
-            out.append(
-                PullRequestInfo(
-                    number=p.get("number"), title=p.get("title"), state=state, url=p.get("html_url")
-                )
-            )
-        return out
-
-    def pull(self, repo: str, number: int) -> PullRequestInfo | None:
-        p = self._json(f"/repos/{repo}/pulls/{number}", allow_404=True)
-        if not p:
-            return None
-        state = "merged" if p.get("merged_at") else p.get("state")
-        return PullRequestInfo(number=p["number"], title=p.get("title"), state=state, url=p.get("html_url"))

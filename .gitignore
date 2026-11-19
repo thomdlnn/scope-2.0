@@ -6,6 +6,6 @@ site/
 out/
 .DS_Store
 .env
-# Vos projets et vos tokens restent dans VOTRE copie (voir README) :
-# en mode Kubernetes, ./scope.sh init les commite volontairement (git add -f).
+
+# Réglages de votre instance (versions, santé) : ils restent dans votre copie.
 projects/*.yml

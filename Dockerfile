@@ -1,23 +1,19 @@
-# Générateur SCOPE : régénère le site toutes les SCOPE_INTERVAL secondes dans /site.
+# Générateur SCOPE : relit les rapports de SCOPE_ROOT (monté sur /repos, en
+# lecture seule) toutes les SCOPE_INTERVAL secondes et écrit le site dans /site.
 FROM python:3.12.12-slim-bookworm
 
-# git : utile au mode --local (clones montés dans le conteneur).
-RUN apt-get update && apt-get install -y --no-install-recommends git \
-    && rm -rf /var/lib/apt/lists/* \
-    && useradd --uid 10001 --create-home scope \
-    && git config --system --add safe.directory "*" \
-    && mkdir -p /site /projects && chown scope:scope /site
+RUN useradd --uid 10001 --create-home scope \
+    && mkdir -p /site && chmod 0777 /site
 
 WORKDIR /app
 COPY generator/requirements.txt generator/requirements.txt
 RUN pip install --no-cache-dir -r generator/requirements.txt
 COPY generator/scope_gen generator/scope_gen
-COPY docker/entrypoint.sh /usr/local/bin/scope-entrypoint
 
 ENV PYTHONPATH=/app/generator \
     PYTHONUNBUFFERED=1 \
-    SCOPE_INTERVAL=900
+    SCOPE_ROOT=/repos \
+    SCOPE_INTERVAL=3
 USER scope
 VOLUME ["/site"]
-ENTRYPOINT ["scope-entrypoint"]
-CMD ["loop"]
+CMD ["python", "-m", "scope_gen", "--site", "/site", "--boucle"]

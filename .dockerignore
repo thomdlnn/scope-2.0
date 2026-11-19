@@ -1,7 +1,9 @@
 .git
 .env
+.scope
 out
 site
+projects
 **/.venv
 **/__pycache__
 **/.pytest_cache

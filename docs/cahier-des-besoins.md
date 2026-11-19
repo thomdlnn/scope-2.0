@@ -1,5 +1,11 @@
 # SCOPE — cahier des besoins
 
+2026-11-16
+
+> **Document historique.** La vision a changé depuis (suivi local et en direct, rapports non commités, sans token) : elle fait foi dans le [README](../README.fr.md).
+>
+> Export du document « SCOPE — cahier des besoins » (claude.ai). Le schéma d'architecture du document original n'est pas reproduit ici.
+
 ## Objectif
 
 **SCOPE** — *Supervision, Coordination & Observation Platform Engine* : une vision globale sur les actions, les projets et les agents.

@@ -1,10 +1,8 @@
-# Tests du générateur, image Docker, manifests et vérification navigateur.
+# Tests du générateur, vérification navigateur, shellcheck et image Docker sur chaque PR.
 name: ci
 
 on:
   pull_request:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -25,27 +23,29 @@ jobs:
       - name: pytest
         working-directory: generator
         run: python -m pytest -q
-      - name: kustomize
-        run: kubectl kustomize deploy/k8s > /dev/null
-
-  docker:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v5
-      - name: docker compose config
-        run: docker compose config --quiet
-      - name: image du générateur
-        run: docker build -t scope-generator:ci .
 
   navigateur:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - name: Vérification dans Chromium (Playwright, Docker)
+        run: scripts/verifier-site.sh "$RUNNER_TEMP/captures"
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          python-version: "3.12"
-      - run: pip install -r generator/requirements.txt
-      - name: vérification dans Chromium headless (ordinateur + mobile, clair + sombre)
-        run: scripts/verifier-site.sh
+          name: captures
+          path: ${{ runner.temp }}/captures
+          if-no-files-found: ignore
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: shellcheck
+        run: shellcheck scope.sh scripts/*.sh
+      - name: docker compose config
+        run: docker compose config --quiet
+      - name: image du générateur
+        run: docker build -t scope-generator:ci .
