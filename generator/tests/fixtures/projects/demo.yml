@@ -1,9 +1,4 @@
 name: demo
-title: Démo
-repos:
-  - acme/demo-front
-  - acme/demo-api
-  - acme/demo-deploy
 deploiements:
   acme/demo-front:
     depot: acme/demo-deploy
@@ -11,5 +6,4 @@ deploiements:
   acme/demo-api:
     depot: acme/demo-deploy
     fichier: environments/local/demo-api.yaml
-    environnement: local
-sante: http://localhost:8080/sante-demo.json
+sante: http://127.0.0.1:9999/sante-demo.json

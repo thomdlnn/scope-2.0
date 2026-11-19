@@ -1,260 +1,183 @@
 # SCOPE
 
-**English** · [Français](README.fr.md)
+**Supervision, Coordination & Observation Platform Engine** · [Français](README.fr.md)
 
-**Supervision, Coordination & Observation Platform Engine**
+SCOPE keeps you on top of everything you have asked your AI coding agents (Claude Code, Cursor, Copilot, Codex…) **while you work**. For each request, one page shows:
 
-SCOPE shows, project by project, what AI coding assistants (Claude Code, Cursor, GitHub Copilot, Codex…) did on your GitHub repositories.
+- **what you asked**;
+- **what the agent did**: code, commit, push, PR, deployment, depending on what you allowed it to do;
+- above all, **what the agent is waiting for from you**: a question, a decision, or a note you should know about.
 
-At the end of each prompt, the assistant writes a short Markdown report to `.scope/rapports/` in the repository. SCOPE reads these reports with **a read-only token** and publishes one page per project:
-- **a header bar**: open pull requests, commits waiting to be deployed, status of the last prompt, application health;
-- **the report feed**: what was done, with which commit and pull request, and what is left to do;
-- **per repository**: open pull requests, last commit, deployed version and the version actually running.
+> *"Create a login page with Google."* SCOPE shows that the agent is waiting for an answer (*"Which Client ID?"*) and adds a note (*"Google requires the callback URL http://localhost:3000/auth/callback"*).
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/scope-dark.png">
-  <img alt="A SCOPE project page: header bar (open PRs, commits to deploy, last prompt, health), repository panel and report feed" src="docs/images/scope-light.png">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/accueil-sombre.png">
+  <img alt="SCOPE home page: waiting actions, then one block per project" src="docs/img/accueil.png">
 </picture>
 
-> The interface and the report format are in French for now.
+## Quick start
 
-## Principles
-
-- **Simple.** A project name and a token are all it takes to add a project.
-- **Read-only.** SCOPE's token only reads the project's repositories.
-- **Lightweight.** No database, no application server, no AI inside SCOPE: a generator builds a static site, served by nginx.
-- **Universal.** Works with any assistant that can follow written instructions: the contract is a Markdown file.
-- **Verified.** SCOPE does not trust references written by the AI: it looks up the commit and the pull request through the GitHub API.
-
-## Your copy, your data
-
-**This repository only holds the code.** SCOPE never sends or stores anything here: your projects (`projects/*.yml`), your tokens and the generated page stay in **your** copy.
-
-| Mode | Copy to use | Where your data lives |
-| --- | --- | --- |
-| **Local** (Docker Compose) | a plain `git clone` of this repository | on your machine: `projects/*.yml` and `.env` are git-ignored, nothing is pushed |
-| **Kubernetes** (GitHub Actions) | **your own private repository**: **Use this template**, then *Private* | in your private repository: project files, Actions secrets, `scope-site` branch |
-
-> **Do not fork this repository for the Kubernetes mode.** A fork of a public repository is public: the `scope-site` branch would publish your reports, pull request titles and repository names. Use **Use this template** (or push a clone to a new private repository).
-
-To get new versions: `git pull` in local mode. For a copy created from the template, add this repository as an `upstream` remote and merge `upstream/main`.
-
-## Quick start (Docker Compose)
-
-Requirements: Docker with Compose, `python3` (≥ 3.12) and [`gh`](https://cli.github.com/) logged in (`gh auth login`).
+Requirements: `git`, plus Docker with Compose, or Python ≥ 3.12 without Docker.
 
 ```bash
 git clone https://github.com/thomdlnn/scope-2.0.git scope && cd scope
-./scope.sh init shop --env     # 1 read-only token, pick the repositories, AI instructions added
-./scope.sh up                  # http://localhost:8080
+./scope.sh init my-project ~/Git/my-app ~/Git/my-api    # once per repository
+./scope.sh up                                          # http://localhost:8080
 ```
 
-`init`:
-1. **asks for a GitHub token** with read access, without echoing it ([see below](#the-token));
-2. **lists the repositories** this token can read, and lets you pick the project's ones;
-3. **writes the token** to `.env` (never committed) and the project to `projects/shop.yml`;
-4. **adds the SCOPE instructions** to `CLAUDE.md` and `AGENTS.md` in each repository, through a pull request opened with *your* `gh` credentials, never with the token.
+Then ask your agent something in `my-app`. The request shows up within 3 seconds, without reloading the page.
 
-Merge these pull requests. Reports then show up as you prompt.
+`init` writes nothing to GitHub and commits nothing. In each clone, it:
+1. adds the SCOPE instructions to `CLAUDE.md` and `AGENTS.md`, between `<!-- scope:start -->` and `<!-- scope:end -->` (run it again to update them). You decide whether to commit these files;
+2. adds `.scope/` to `.git/info/exclude`, because reports are never committed;
+3. writes the project name to `.scope/projet`;
+4. installs a Claude Code hook in `.claude/settings.local.json` (see [the hook](#the-claude-code-hook)).
 
-The generator runs in a container and rebuilds the page every 15 minutes. nginx serves it on `127.0.0.1:8080`.
+Use `--lang fr` for French instructions (default: `en`).
 
-| Command | What it does |
+| Command | Purpose |
 | --- | --- |
-| `./scope.sh init <project>` | Adds or updates a project (`--env`: Docker Compose mode) |
-| `./scope.sh consigne <project>` | Adds or updates the AI instructions in a project's repositories |
-| `./scope.sh up` / `down` / `logs` | Starts, stops or follows SCOPE locally |
-| `./scope.sh refresh` | Rebuilds the page now |
-| `./scope.sh apercu` | Builds the page once, without Docker, and serves it on http://localhost:8000 |
-| `./scope.sh cluster` | Installs SCOPE on a Kubernetes cluster with ArgoCD |
+| `./scope.sh init <project> <clone>... [--lang en\|fr]` | Install or update SCOPE in local clones |
+| `./scope.sh up` / `down` / `logs` | Start, stop, follow SCOPE (Docker Compose) |
+| `./scope.sh apercu` | Same page without Docker (Python only), on http://localhost:8000 |
 
-Useful `init` options:
+| Setting (environment or `.env`) | Default | Purpose |
+| --- | --- | --- |
+| `SCOPE_ROOT` | `~/Git` | Folder searched for repositories, mounted **read-only** |
+| `SCOPE_DEPTH` | `4` | How many folder levels below `SCOPE_ROOT` are searched |
+| `SCOPE_INTERVAL` | `3` | Seconds between two readings of the reports |
+| `SCOPE_PORT` | `8080` | Local port of the page (bound to 127.0.0.1) |
+| `SCOPE_GH_TOKEN` | — | Optional read-only GitHub token ([see below](#optional-a-github-token)) |
+| `SCOPE_GH_INTERVAL` | `60` | Seconds between two readings of the GitHub API |
 
-| Option | Effect |
-| --- | --- |
-| `--env [FILE]` | Docker Compose mode: token written to `.env` (default) instead of a GitHub secret |
-| `--titre "Shop"` | Displayed project title |
-| `--repos o/a,o/b` | Fixed repository list, no selection prompt |
-| `--token-dedie` | Token for this project only (see below) |
-| `--clones ~/src` | Writes the instructions directly into your local clones (`~/src/<repo>`), no pull request |
-| `--dry-run` | Sends nothing: no secret, no push, no pull request |
+## How it works
 
-### The token
+```
+your clones (SCOPE_ROOT, read-only)        generator (every 3 s)                nginx
+~/Git/.../my-app/.scope/rapports/*.md ──▶  reads reports, groups by project ──▶ http://localhost:8080
+         ▲                                 writes a static site, switches it     │
+         └── written by your agents        atomically only if something changed  ▼
+                                                                      the page polls etat.json
+                                                                      and refreshes itself
+```
 
-Create a [*fine-grained* token](https://github.com/settings/personal-access-tokens/new):
-- **Repository access:** *Only select repositories*, choosing the project's repositories. Add the GitOps repository if you display the deployed version;
-- **Permissions:** **Contents: Read-only** and **Pull requests: Read-only** (Metadata: Read-only is added automatically);
-- **Expiration:** set an expiration date.
+- **Reports are not committed.** They are for live tracking; commits are already the history. They live in `.scope/rapports/` of your local clone, excluded from git.
+- **SCOPE reads reports from your disk, not from GitHub.** It only sees agents running on your machine. This is by design: reports need no token and no network.
+- **No AI, no database, no application server.** A Python script writes a static site; nginx serves it.
+- **Universal.** Any agent that can follow written instructions works: the contract is a Markdown file.
+- **Live.** The page checks `etat.json` every few seconds and replaces its content when something changes, keeping your filters and expanded sections. The header says when the reports were last checked, and turns orange if generation seems to have stopped.
 
-**One token for everything, or one per project.** The first token becomes the global token, `SCOPE_GH_TOKEN`, which must then read the repositories of every project. To isolate projects, `--token-dedie` stores a project-specific token, `SCOPE_TOKEN_<PROJECT>`. If a global token already exists, `init` offers this choice.
-
-### Refresh
-
-The page is rebuilt **every 15 minutes** (`SCOPE_INTERVAL` in `.env`). To go faster:
-- the **Actualiser** button at the top of each page reloads the current page with the latest generated data, keeping your filters;
-- `./scope.sh refresh` triggers a new build right away.
-
-The header shows how long ago the page was updated. After 30 minutes it turns orange: the build is probably failing, for example because of an expired token.
+The **home page** first states how many **actions are waiting** for you ("Aucune action en attente", or "2 actions en attente: my-project (1), …"), then shows **one block per project**, the ones waiting for you first: pending questions (with the repository and the request), requests **in progress** (flagged when the agent has not updated them for an hour) and, collapsed, those of **the last 7 days**. A **project page** shows the same blocks, with filters by repository and status, expandable details and actions as badges.
 
 ## The report
 
-At the end of each prompt that changes code, the assistant creates `.scope/rapports/YYYY-MM-DD-HHMMSS-<slug>.md` and commits it with its work. The full instructions are in [templates/instructions-ia.md](templates/instructions-ia.md).
+One file **per request**, created when the work starts and **updated** until the end: `.scope/rapports/YYYY-MM-DD-HHMMSS-<slug>.md`. The full instructions given to agents are in [templates/instructions-ia.en.md](templates/instructions-ia.en.md).
 
 ```markdown
 ---
-date: 2026-11-16T10:30:00Z
-projet: shop
-repo: shop-front
+project: my-project
+repo: my-app
 agent: claude-code
-branche: feat/login
-commit_message: "feat(front): add the login page"
-pr_titre: "Add the login page"
-statut: pr-ouverte     # termine | pr-ouverte | bloque | echec
+branch: feat/login-google
+request: "Login page with Google authentication"
+status: waiting            # in-progress | waiting | done | failed
+actions: [code, commit]    # code | commit | push | pr | deploy | outside-repo
+started: 2026-11-17T10:30:00Z
+updated: 2026-11-17T10:42:00Z
+pr: 42                     # optional
 ---
 
-## Résumé court
-Login page added to the frontend, PR opened.
+## Summary
+One line: where the request stands.
 
-## Détail
-Changed files, technical choices, tests run, what is left.
+## For you
+- Question: which Google Client ID should I use?
+- Note: declare http://localhost:3000/auth/callback in the Google console.
 
-## Prochaine étape
-(optional) What you should do next: PR to review, decision to make, suggested prompt.
+## Details
+Files changed, technical choices, tests run.
 ```
 
-| Field | Required | Description |
-| --- | --- | --- |
-| `date`, `projet`, `repo`, `agent`, `statut` | yes | ISO 8601 date, SCOPE project, repository, assistant, work status |
-| `branche`, `commit_message`, `pr_titre`, `pr_numero` | no | Display and fallback values |
-| `## Résumé court` | yes | One-line summary shown in the feed |
-| `## Détail`, `## Prochaine étape` | no | Collapsible details and highlighted next step |
+- `waiting` ⇔ at least one `Question:` under *For you*. A note alone does not put a request on hold. SCOPE shows a warning when the two disagree.
+- When you answer, the agent keeps updating **the same file**. A new request means a new file.
+- **English and French** keys and headings are both accepted: `project`/`projet`, `status`/`statut`, `request`/`demande`, `branch`/`branche`, `started`/`debut`, `updated`/`maj`; `Summary`/`Résumé`, `For you`/`Pour vous`, `Details`/`Détail`; `in-progress`/`en-cours`, `waiting`/`attente`, `done`/`termine`, `failed`/`echec`.
+- **Project:** the `project` field, otherwise `.scope/projet`, otherwise the repository folder name.
+- **Old format** (one report per answer) is still read: `bloque` = `waiting`, `pr-ouverte` = `done` with a PR, `Résumé court` = summary, `Prochaine étape` = *For you*. An old `bloque` report only counts as waiting while it is the most recent report of its repository.
+- **A malformed report** is shown as "unreadable", with the reason, and never breaks the page.
+- **Never** put a secret, token, password or personal data in a report.
 
-- **Commit and PR:** SCOPE finds the commit that added the report, then the pull request containing it.
-- **Branches read:** the default branch and the branches of open pull requests, without duplicates.
-- **Malformed report:** shown as « illisible » (unreadable) with the error; it never breaks the build.
+### The Claude Code hook
 
-## Project options
+Agents sometimes forget the report. For Claude Code, `init` installs two hooks in `.claude/settings.local.json` (not committed), backed by `.scope/hooks/scope_hook.py`:
+- when you send a prompt (`UserPromptSubmit`), it records the state of the repository;
+- when the agent finishes its turn (`Stop`), if repository files changed (or a commit was made) and no report was created or updated during the turn, it blocks **once** with a reminder. It uses `stop_hook_active`, so it never blocks twice in a row.
 
-`projects/<project>.yml` is written by `./scope.sh init`, which keeps options you added by hand:
+Other agents rely on the instructions in `AGENTS.md`.
+
+## Optional: a GitHub token
+
+Without a token, SCOPE makes no network call. With a **read-only** GitHub token, each project page also gets a **Repositories** panel:
+
+- repositories are **deduced from the clones** (`git remote get-url origin`), with nothing to list. Credentials in a remote URL are never shown;
+- for each repository: **all open pull requests** (by anyone, drafts flagged), and the last commit of the default branch;
+- the home page shows the number of open PRs per project.
+
+```bash
+cp .env.example .env    # then set SCOPE_GH_TOKEN=…
+./scope.sh up
+```
+
+Create a [fine-grained token](https://github.com/settings/personal-access-tokens/new) with access to your projects' repositories, **Contents: Read-only** and **Pull requests: Read-only**, and an expiration date. It is the only token SCOPE uses. GitHub is read in the background every `SCOPE_GH_INTERVAL` seconds (default 60), so local reports keep updating every 3 seconds even if GitHub is slow. Token errors are shown on the page: *repository not found with this token* (add the repository to the token), *PRs not read* (add the Pull requests permission), *token refused* (invalid or expired).
+
+### Deployed version and app health (optional)
+
+`projects/<project>.yml` (the file name is the project name) adds what cannot be deduced:
 
 ```yaml
-name: shop
-title: Shop
-token: SCOPE_TOKEN_SHOP              # optional: dedicated token (otherwise SCOPE_GH_TOKEN)
-repos:
-  - <owner>/shop-front
-  - <owner>/shop-deploy
-sante: http://shop.local/health      # optional: application health
-deploiements:                        # optional: deployed version (GitOps)
-  <owner>/shop-front:
-    depot: <owner>/shop-deploy       # GitOps repository watched by ArgoCD (the token must read it)
-    fichier: environments/prod/shop-front.yaml
-    cle: image.tag                   # default: image.tag (SHA of the built commit)
-    environnement: prod              # default: local
+deploiements:                                  # needs the token
+  <owner>/my-app:                              # application repository
+    depot: <owner>/my-app-deploy               # GitOps repository (e.g. followed by ArgoCD)
+    fichier: environments/local/my-app.yaml
+    cle: image.tag                             # default: image.tag (SHA of the built commit)
+    environnement: local                       # default: local
+sante: http://my-app.local/health              # called by the browser, works without a token
 ```
 
-**Deployed version.** SCOPE reads the version *declared* in the GitOps repository and counts the default-branch commits not deployed yet. It does not query the cluster.
+- **`deploiements`**: SCOPE reads the version declared in the GitOps repository and counts the commits of the default branch not deployed yet.
+- **`sante`**: the browser calls this URL every 60 seconds and understands `{"status": "ok", "services": {…}, "versions": {"my-app": "<sha>"}}`. The application must allow CORS (`Access-Control-Allow-Origin`), otherwise it shows "unreachable".
 
-**Health.** The browser calls the `sante` URL every 60 seconds and understands this JSON:
-- `status`: `ok`, `degraded`…;
-- `services` (optional): status of each component, shown in a tooltip;
-- `versions` (optional): version actually running per repository, shown in the repository panel.
-
-```json
-{"status": "ok", "services": {"shop-api": "ok"}, "versions": {"shop-front": "5c60f6c…"}}
-```
-
-The application must allow reads from the SCOPE page (`Access-Control-Allow-Origin` header). Otherwise the health shows « injoignable » (unreachable).
-
-## Kubernetes deployment (GitHub Actions + ArgoCD)
-
-In this mode, a GitHub Action builds the page and publishes it to the `scope-site` branch of your SCOPE repository. An nginx pod with a git-sync sidecar serves it from your cluster.
-
-```
-Project repositories                SCOPE repository (GitHub Actions)          Kubernetes cluster
-.scope/rapports/*.md  ───read────▶  build-site (15 min · refresh · push)       scope pod
-PRs, commits, GitOps    (token)       python -m scope_gen                        git-sync ◀── scope-site (60 s)
-                                             │                                     nginx ──▶ Ingress ──▶ browser
-                                             ▼
-                                    scope-site branch (HTML + data.json)
-```
-
-1. **Create your private repository** from this one: **Use this template**, then *Private* (see [Your copy, your data](#your-copy-your-data)). Everything below happens in that private repository.
-2. **Set your instance parameters:**
-   - your private repository URL (`OWNER/REPO`), host name and ingress class, in the `patches` block of [deploy/k8s/kustomization.yaml](deploy/k8s/kustomization.yaml);
-   - the repository URL and branch, in [deploy/argocd/application.yaml](deploy/argocd/application.yaml);
-   - the default branch (`main`), in [.github/workflows/build-site.yml](.github/workflows/build-site.yml).
-3. **Enable the `build-site` workflow** with the repository variable `SCOPE_MODE=actions`: `gh variable set SCOPE_MODE --body actions`.
-4. **Add your projects** without `--env`: `./scope.sh init shop`. The token is stored as a GitHub secret of the repository, and `projects/shop.yml` is proposed through a pull request.
-5. **Install the page on the cluster:**
-   ```bash
-   ./scope.sh cluster
-   echo "127.0.0.1 scope.local" | sudo tee -a /etc/hosts    # if the name does not resolve
-   ```
-   This command:
-   - asks for a read-only token on your SCOPE repository;
-   - creates the git-sync (`scope/scope-git-credentials`) and ArgoCD (`argocd/repo-scope`) Secrets;
-   - applies the ArgoCD Application, then waits for the pod to be ready.
-
-| Secret | Location | Used for |
-| --- | --- | --- |
-| `SCOPE_GH_TOKEN`, `SCOPE_TOKEN_<PROJECT>` | Actions secrets of your SCOPE repository | Reading the tracked repositories |
-| `scope-git-credentials` | Kubernetes Secret, `scope` namespace | git-sync reads the `scope-site` branch |
-| `repo-scope` | Kubernetes Secret, `argocd` namespace | ArgoCD reads `deploy/k8s` |
-
-Notes:
-- The SCOPE repository itself can be tracked without a token, with `token: GITHUB_TOKEN` in its project file: it is the Action's built-in token.
-- Your ingress controller must watch the `scope` namespace. For example, Traefik with `providers.kubernetesIngress.namespaces` must include `scope`.
-- The Action passes the repository secrets to the generator (`SCOPE_SECRETS`) so it can read dedicated tokens. Only store SCOPE tokens there.
-
-Troubleshooting: `kubectl -n scope get pods`, then `kubectl -n scope logs deploy/scope -c git-sync`.
+An invalid file is reported on the home page and ignored; the rest of the page keeps working.
 
 ## Development
 
 ```bash
 python3 -m venv generator/.venv && generator/.venv/bin/pip install -r generator/requirements-dev.txt
 (cd generator && .venv/bin/python -m pytest -q)        # tests
-scripts/verifier-site.sh                              # headless browser (Docker), screenshots in out/captures/
-kubectl kustomize deploy/k8s                          # manifests
-
-# Page built from local clones, no token (DIR/<repo>)
-PYTHONPATH=generator generator/.venv/bin/python -m scope_gen --local ~/src --out site
+scripts/verifier-site.sh                              # headless Chromium (Docker), screenshots in out/captures/
+PYTHONPATH=generator generator/.venv/bin/python -m scope_gen --racine ~/Git --out site   # one-off generation
 ```
 
 ```
-scope.sh                  entry point (init, consigne, up, refresh, apercu, cluster)
-docker-compose.yml        local mode: generator + nginx
-Dockerfile, docker/       generator image (rebuild loop)
-projects/                 one file per tracked project (git-ignored)
-templates/                AI instructions
+scope.sh                    entry point (init, up, down, logs, apercu)
+docker-compose.yml          generator + nginx; Dockerfile, docker/nginx.conf
+templates/                  agent instructions (en, fr) and the Claude Code hook
 generator/scope_gen/
-  admin.py                ./scope.sh init | consigne | refresh
-  parser.py               report → data (never raises)
-  backends/               repository access: GitHub API, local clones
-  sources/                collected data: reports, repository status
+  demandes.py               report → request (bilingual parser, never raises)
+  locale.py                 finds repositories on disk, groups by project
   render.py, templates/, static/   hand-written HTML, CSS and JavaScript
-.github/workflows/        ci (tests, image, browser), build-site (Kubernetes mode)
-deploy/                   kustomize (nginx + git-sync) and ArgoCD Application
-scripts/                  installer-cluster.sh, verifier-site.sh
-docs/                     requirements (French)
+  cli.py                    one-off generation, loop with atomic switch, preview server
+  admin.py                  ./scope.sh init
+  sources/depots.py, backends/   repository state from the GitHub API (optional token)
+  config.py                 optional projects/*.yml settings
 ```
 
-**Adding a data source:** create a `Source` class in `generator/scope_gen/sources/` (with `name` and `collect(project, backend)`). Add it to `SOURCES`, then display its result in `render.py`. It is exported to `data.json` under the `name` key.
+## Out of scope
 
-## Roadmap
-
-- "Action required" view across all projects.
-- Flagging commits without a report, and an assistant hook that enforces the report.
-- Pull request status: CI, review, conflicts.
-- Several environments per repository.
-- English interface.
-- Token usage, per-project roadmap, notifications.
-
-Details in the [requirements document](docs/cahier-des-besoins.md) (French).
+Roadmap tracking, token usage, notifications, Kubernetes, GitHub Actions.
 
 ## Contributing
 
-Issues and pull requests are welcome. Every change to `main` goes through a pull request, and the CI (tests, Docker image, browser check) must pass.
+Issues and pull requests are welcome. Every change to `main` goes through a pull request, and CI (tests, browser check, shellcheck, Docker image) must pass.
 
 ## License
 

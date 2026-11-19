@@ -1,8 +1,3 @@
-from .base import Source
-from .depots import DepotsSource
-from .reports import ReportsResult, ReportsSource
+from .depots import EtatGitHub, collect, status
 
-#: Sources actives, dans l'ordre de collecte.
-SOURCES: list[Source] = [DepotsSource(), ReportsSource()]
-
-__all__ = ["SOURCES", "Source", "DepotsSource", "ReportsSource", "ReportsResult"]
+__all__ = ["EtatGitHub", "collect", "status"]

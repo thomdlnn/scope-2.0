@@ -1,17 +1,11 @@
-from pathlib import Path
+import os
 
 import pytest
 
-from tests.fixtures.make_repos import build
 
-FIXTURES = Path(__file__).parent / "fixtures"
-
-
-@pytest.fixture(scope="session")
-def local_repos(tmp_path_factory) -> Path:
-    return build(tmp_path_factory.mktemp("repos"))
-
-
-@pytest.fixture
-def projects_dir() -> Path:
-    return FIXTURES / "projects"
+@pytest.fixture(autouse=True)
+def sans_token(monkeypatch):
+    """Les tests ne lisent jamais un vrai token de l'environnement."""
+    for k in ("SCOPE_GH_TOKEN", "SCOPE_GH_API", "SCOPE_PROJECTS"):
+        monkeypatch.delenv(k, raising=False)
+    assert "SCOPE_GH_TOKEN" not in os.environ
